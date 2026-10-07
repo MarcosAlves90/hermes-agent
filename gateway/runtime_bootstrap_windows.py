@@ -111,6 +111,23 @@ def _complete(ov, deadline):
         raise
 
 
+def _accept(handle, budget):
+    """Wait up to ``budget`` seconds for a client; True when one is connected.
+
+    A client can connect between the wait timing out and the cancel reaching the kernel; the
+    reaped result then reports success and that client must be served. Treating it as a timeout
+    disconnected it mid-request (its read saw ERROR_PIPE_NOT_CONNECTED, 233).
+    """
+    win = _native()
+    ov = win.ConnectNamedPipe(handle, overlapped=True)
+    if win.WaitForSingleObject(ov.event, max(1, int(budget * 1000))) != win.WAIT_OBJECT_0:
+        ov.cancel()
+    _, error = ov.GetOverlappedResult(True)
+    if error and error != 995:  # ERROR_OPERATION_ABORTED: the idle wait was cancelled
+        raise OSError(error, 'runtime pipe accept failed')
+    return not error
+
+
 def _read_line(handle, deadline, maximum):
     win = _native()
     chunks = bytearray()
@@ -219,8 +236,8 @@ class NativeControlServer:
             self._ready.set()
             while not self._stop.is_set():
                 try:
-                    ov = win.ConnectNamedPipe(handle, overlapped=True)
-                    _complete(ov, time.monotonic() + 0.5)
+                    if not _accept(handle, 0.5):
+                        continue
                     subject = _peer_subject(handle, server=False)
                     deadline = time.monotonic() + 2
                     raw = _read_line(handle, deadline, 64 * 1024)
