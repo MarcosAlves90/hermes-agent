@@ -488,9 +488,11 @@ class MemoryStore:
 
         def _apply(entries, limit):
             if expected_snapshot is not None and tuple(entries) != expected_snapshot:
-                return self._batch_failure(
+                failure = self._batch_failure(
                     target, "Stored memory changed since the reviewed snapshot; refresh before applying.",
-                    "stale_entry")
+                    "stale_source")
+                failure["failure_class"] = "stale_source"
+                return failure
             working = list(entries)  # only committed if the whole batch validates
             matched = []  # per op, the entry a replace/remove selected (None for add)
             for i, op in enumerate(ops):
